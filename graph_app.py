@@ -6,7 +6,7 @@ Graph Visualization & Analysis Application
 """
 
 import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
+from tkinter import ttk, messagebox, filedialog, simpledialog
 import networkx as nx
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
@@ -204,12 +204,13 @@ class GraphApp:
     
     def __init__(self, root):
         self.root = root
-        self.root.title("Graph Visualization & Analysis - Trực Quan Hóa và Phân Tích Đồ Thị")
-        self.root.geometry("1200x800")
+        self.root.geometry("1400x900")
         
         self.graph = Graph(is_directed=False)
         self.nx_graph = nx.Graph()
         self.pos = {}
+        self.mode = None
+        self.canvas = None
         
         self.setup_ui()
     
@@ -219,76 +220,124 @@ class GraphApp:
         main_frame = ttk.Frame(self.root)
         main_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
         
-        # Frame điều khiển bên trái
-        control_frame = ttk.Frame(main_frame, width=250)
-        control_frame.pack(side=tk.LEFT, fill=tk.BOTH, padx=5, pady=5)
+        # Frame điều khiển bên trái với scroll
+        scrollable_frame = ttk.Frame(main_frame)
+        scrollable_frame.pack(side=tk.LEFT, fill=tk.Y, padx=10, pady=10)
+        
+        self.canvas_scroll = tk.Canvas(scrollable_frame, width=350, height=800)
+        scrollbar = ttk.Scrollbar(scrollable_frame, orient="vertical", command=self.canvas_scroll.yview)
+        self.canvas_scroll.configure(yscrollcommand=scrollbar.set)
+        
+        scrollbar.pack(side="right", fill="y")
+        self.canvas_scroll.pack(side="left", fill="both", expand=True)
+        
+        control_frame = ttk.Frame(self.canvas_scroll)
+        self.canvas_scroll.create_window((0, 0), window=control_frame, anchor="nw")
+        
+        control_frame.bind("<Configure>", self.on_frame_configure)
+        self.canvas_scroll.bind("<MouseWheel>", self._on_mousewheel)
         
         # Frame hiển thị đồ thị bên phải
         display_frame = ttk.Frame(main_frame)
         display_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=5, pady=5)
         
-        # ===== PHẦN ĐIỀU KHIỂN =====
         ttk.Label(control_frame, text="=== THÊM PHẦN TỬ ===", font=('Arial', 10, 'bold')).pack(pady=10)
         
         # Thêm đỉnh
-        ttk.Label(control_frame, text="Tên đỉnh:").pack()
-        self.vertex_entry = ttk.Entry(control_frame)
-        self.vertex_entry.pack(pady=5)
-        ttk.Button(control_frame, text="Thêm đỉnh", command=self.add_vertex).pack(pady=5)
+        add_vertex_frame = ttk.Frame(control_frame)
+        add_vertex_frame.pack(fill='x', padx=10, pady=5)
+        ttk.Button(add_vertex_frame, text="Thêm đỉnh (click)", command=self.start_add_vertex).pack()
         
         # Thêm cạnh
-        ttk.Label(control_frame, text="Đỉnh từ:").pack()
-        self.from_vertex_entry = ttk.Entry(control_frame)
-        self.from_vertex_entry.pack(pady=5)
+        add_edge_frame = ttk.Frame(control_frame)
+        add_edge_frame.pack(fill='x', padx=10, pady=5)
+        ttk.Label(add_edge_frame, text="Đỉnh từ:").grid(row=0, column=0, sticky='w', pady=2)
+        self.from_vertex_entry = ttk.Entry(add_edge_frame)
+        self.from_vertex_entry.grid(row=0, column=1, sticky='ew', pady=2, padx=(5,0))
         
-        ttk.Label(control_frame, text="Đỉnh đến:").pack()
-        self.to_vertex_entry = ttk.Entry(control_frame)
-        self.to_vertex_entry.pack(pady=5)
+        ttk.Label(add_edge_frame, text="Đỉnh đến:").grid(row=1, column=0, sticky='w', pady=2)
+        self.to_vertex_entry = ttk.Entry(add_edge_frame)
+        self.to_vertex_entry.grid(row=1, column=1, sticky='ew', pady=2, padx=(5,0))
         
-        ttk.Label(control_frame, text="Trọng số:").pack()
-        self.weight_entry = ttk.Entry(control_frame)
+        ttk.Label(add_edge_frame, text="Trọng số:").grid(row=2, column=0, sticky='w', pady=2)
+        self.weight_entry = ttk.Entry(add_edge_frame)
         self.weight_entry.insert(0, "1")
-        self.weight_entry.pack(pady=5)
+        self.weight_entry.grid(row=2, column=1, sticky='ew', pady=2, padx=(5,0))
         
-        ttk.Button(control_frame, text="Thêm cạnh", command=self.add_edge).pack(pady=5)
+        ttk.Button(add_edge_frame, text="Thêm cạnh", command=self.add_edge).grid(row=3, column=0, columnspan=2, pady=5)
+        
+        add_edge_frame.columnconfigure(1, weight=1)
+        
+        # Xóa đỉnh
+        delete_vertex_frame = ttk.Frame(control_frame)
+        delete_vertex_frame.pack(fill='x', padx=10, pady=5)
+        ttk.Label(delete_vertex_frame, text="Tên đỉnh xóa:").grid(row=0, column=0, sticky='w', pady=2)
+        self.delete_vertex_entry = ttk.Entry(delete_vertex_frame)
+        self.delete_vertex_entry.grid(row=0, column=1, sticky='ew', pady=2, padx=(5,0))
+        ttk.Button(delete_vertex_frame, text="Xóa đỉnh", command=self.delete_vertex).grid(row=1, column=0, columnspan=2, pady=5)
+        delete_vertex_frame.columnconfigure(1, weight=1)
+        
+        # Xóa cạnh
+        delete_edge_frame = ttk.Frame(control_frame)
+        delete_edge_frame.pack(fill='x', padx=10, pady=5)
+        ttk.Label(delete_edge_frame, text="Đỉnh từ:").grid(row=0, column=0, sticky='w', pady=2)
+        self.delete_from_entry = ttk.Entry(delete_edge_frame)
+        self.delete_from_entry.grid(row=0, column=1, sticky='ew', pady=2, padx=(5,0))
+        
+        ttk.Label(delete_edge_frame, text="Đỉnh đến:").grid(row=1, column=0, sticky='w', pady=2)
+        self.delete_to_entry = ttk.Entry(delete_edge_frame)
+        self.delete_to_entry.grid(row=1, column=1, sticky='ew', pady=2, padx=(5,0))
+        
+        ttk.Button(delete_edge_frame, text="Xóa cạnh", command=self.delete_edge).grid(row=2, column=0, columnspan=2, pady=5)
+        delete_edge_frame.columnconfigure(1, weight=1)
         
         # Loại đồ thị
-        ttk.Label(control_frame, text="Loại đồ thị:", font=('Arial', 10)).pack(pady=10)
+        ttk.Label(control_frame, text="=== LOẠI ĐỒ THỊ ===", font=('Arial', 10, 'bold')).pack(pady=10)
+        graph_type_frame = ttk.Frame(control_frame)
+        graph_type_frame.pack(fill='x', padx=10, pady=10)
+        ttk.Label(graph_type_frame, text="Loại đồ thị:", font=('Arial', 10)).grid(row=0, column=0, sticky='w', pady=2)
         self.graph_type_var = tk.StringVar(value="undirected")
-        ttk.Radiobutton(control_frame, text="Vô hướng", variable=self.graph_type_var, 
-                       value="undirected", command=self.change_graph_type).pack()
-        ttk.Radiobutton(control_frame, text="Có hướng", variable=self.graph_type_var, 
-                       value="directed", command=self.change_graph_type).pack(pady=5)
+        ttk.Radiobutton(graph_type_frame, text="Vô hướng", variable=self.graph_type_var, 
+                       value="undirected", command=self.change_graph_type).grid(row=1, column=0, sticky='w', pady=2)
+        ttk.Radiobutton(graph_type_frame, text="Có hướng", variable=self.graph_type_var, 
+                       value="directed", command=self.change_graph_type).grid(row=2, column=0, sticky='w', pady=2)
         
         # Phân tích
         ttk.Label(control_frame, text="=== PHÂN TÍCH ===", font=('Arial', 10, 'bold')).pack(pady=10)
+        analysis_frame = ttk.Frame(control_frame)
+        analysis_frame.pack(fill='x', padx=10, pady=10)
+        ttk.Label(analysis_frame, text="Đỉnh bắt đầu (BFS/DFS):").grid(row=0, column=0, sticky='w', pady=2)
+        self.start_vertex_entry = ttk.Entry(analysis_frame)
+        self.start_vertex_entry.grid(row=0, column=1, sticky='ew', pady=2, padx=(5,0))
         
-        ttk.Label(control_frame, text="Đỉnh bắt đầu (BFS/DFS):").pack()
-        self.start_vertex_entry = ttk.Entry(control_frame)
-        self.start_vertex_entry.pack(pady=5)
+        ttk.Button(analysis_frame, text="BFS", command=self.perform_bfs).grid(row=1, column=0, pady=3)
+        ttk.Button(analysis_frame, text="DFS", command=self.perform_dfs).grid(row=1, column=1, pady=3)
         
-        ttk.Button(control_frame, text="BFS", command=self.perform_bfs).pack(pady=3)
-        ttk.Button(control_frame, text="DFS", command=self.perform_dfs).pack(pady=3)
+        ttk.Label(analysis_frame, text="Tìm đường đi (từ -> đến):").grid(row=2, column=0, columnspan=2, sticky='w', pady=10)
+        self.path_from_entry = ttk.Entry(analysis_frame)
+        self.path_from_entry.grid(row=3, column=0, sticky='ew', pady=3)
+        self.path_to_entry = ttk.Entry(analysis_frame)
+        self.path_to_entry.grid(row=3, column=1, sticky='ew', pady=3, padx=(5,0))
+        ttk.Button(analysis_frame, text="Đường ngắn nhất", command=self.find_shortest_path).grid(row=4, column=0, columnspan=2, pady=5)
         
-        ttk.Label(control_frame, text="Tìm đường đi (từ -> đến):").pack(pady=10)
-        self.path_from_entry = ttk.Entry(control_frame)
-        self.path_from_entry.pack(pady=3)
-        self.path_to_entry = ttk.Entry(control_frame)
-        self.path_to_entry.pack(pady=3)
-        ttk.Button(control_frame, text="Đường ngắn nhất", command=self.find_shortest_path).pack(pady=5)
-        
-        ttk.Button(control_frame, text="Kiểm tra 2 phía", command=self.check_bipartite).pack(pady=5)
+        ttk.Button(analysis_frame, text="Kiểm tra 2 phía", command=self.check_bipartite).grid(row=5, column=0, columnspan=2, pady=5)
+        analysis_frame.columnconfigure(1, weight=1)
         
         # Chuyển đổi biểu diễn
         ttk.Label(control_frame, text="=== CHUYỂN ĐỔI ===", font=('Arial', 10, 'bold')).pack(pady=10)
-        ttk.Button(control_frame, text="→ Ma trận kề", command=self.show_adjacency_matrix).pack(pady=3)
-        ttk.Button(control_frame, text="→ Danh sách cạnh", command=self.show_edge_list).pack(pady=3)
+        conversion_frame = ttk.Frame(control_frame)
+        conversion_frame.pack(fill='x', padx=10, pady=10)
+        ttk.Button(conversion_frame, text="→ Ma trận kề", command=self.show_adjacency_matrix).grid(row=0, column=0, pady=3)
+        ttk.Button(conversion_frame, text="→ Danh sách kề", command=self.show_adjacency_list).grid(row=0, column=1, pady=3)
+        ttk.Button(conversion_frame, text="→ Danh sách cạnh", command=self.show_edge_list).grid(row=1, column=0, columnspan=2, pady=3)
         
         # Điều khiển tệp
         ttk.Label(control_frame, text="=== TỆP ===", font=('Arial', 10, 'bold')).pack(pady=10)
-        ttk.Button(control_frame, text="Lưu đồ thị", command=self.save_graph).pack(pady=3)
-        ttk.Button(control_frame, text="Tải đồ thị", command=self.load_graph).pack(pady=3)
-        ttk.Button(control_frame, text="Xóa tất cả", command=self.clear_graph).pack(pady=5)
+        file_frame = ttk.Frame(control_frame)
+        file_frame.pack(fill='x', padx=10, pady=10)
+        ttk.Button(file_frame, text="Lưu đồ thị", command=self.save_graph).grid(row=0, column=0, pady=3)
+        ttk.Button(file_frame, text="Tải đồ thị", command=self.load_graph).grid(row=0, column=1, pady=3)
+        ttk.Button(file_frame, text="Xóa tất cả", command=self.clear_graph).grid(row=1, column=0, columnspan=2, pady=5)
         
         # ===== PHẦN HIỂN THỊ =====
         self.canvas_frame = ttk.Frame(display_frame)
@@ -307,45 +356,13 @@ class GraphApp:
         
         self.draw_graph()
     
-    def add_vertex(self):
-        """Thêm đỉnh"""
-        vertex = self.vertex_entry.get().strip()
-        if vertex:
-            self.graph.add_vertex(vertex)
-            self.nx_graph.add_node(vertex)
-            self.vertex_entry.delete(0, tk.END)
-            self.draw_graph()
-            self.log_result(f"✓ Thêm đỉnh '{vertex}' thành công")
-        else:
-            messagebox.showwarning("Cảnh báo", "Vui lòng nhập tên đỉnh!")
+    def on_frame_configure(self, event):
+        """Cập nhật scrollregion khi frame thay đổi"""
+        self.canvas_scroll.configure(scrollregion=self.canvas_scroll.bbox("all"))
     
-    def add_edge(self):
-        """Thêm cạnh"""
-        from_v = self.from_vertex_entry.get().strip()
-        to_v = self.to_vertex_entry.get().strip()
-        
-        if not from_v or not to_v:
-            messagebox.showwarning("Cảnh báo", "Vui lòng nhập cả hai đỉnh!")
-            return
-        
-        try:
-            weight = float(self.weight_entry.get())
-        except ValueError:
-            weight = 1
-        
-        self.graph.add_edge(from_v, to_v, weight)
-        
-        if weight == 1:
-            self.nx_graph.add_edge(from_v, to_v)
-        else:
-            self.nx_graph.add_edge(from_v, to_v, weight=weight)
-        
-        self.from_vertex_entry.delete(0, tk.END)
-        self.to_vertex_entry.delete(0, tk.END)
-        self.weight_entry.delete(0, tk.END)
-        self.weight_entry.insert(0, "1")
-        self.draw_graph()
-        self.log_result(f"✓ Thêm cạnh '{from_v}' -> '{to_v}' (trọng số: {weight}) thành công")
+    def _on_mousewheel(self, event):
+        """Cuộn canvas bằng chuột"""
+        self.canvas_scroll.yview_scroll(int(-1 * (event.delta / 120)), "units")
     
     def change_graph_type(self):
         """Thay đổi loại đồ thị"""
@@ -437,9 +454,17 @@ class GraphApp:
         matrix, vertices_list = self.graph.to_adjacency_matrix()
         
         result_str = "Ma trận kề:\n\n"
-        result_str += "    " + "  ".join(str(v) for v in vertices_list) + "\n"
+        # Tạo bảng (n+1) x (n+1)
+        table = [[''] + vertices_list]  # Row 0: empty + vertices
         for i, v in enumerate(vertices_list):
-            result_str += f"{v:3s} " + "  ".join(str(matrix[i][j]) for j in range(len(vertices_list))) + "\n"
+            row = [v] + [str(matrix[i][j]) for j in range(len(vertices_list))]
+            table.append(row)
+        
+        # Format với width 4 cho mỗi cell, căn giữa
+        for row in table:
+            result_str += " | ".join(f"{cell:^4}" for cell in row) + "\n"
+            if table.index(row) == 0:  # Sau header, thêm đường kẻ
+                result_str += "-" * (6 * len(vertices_list) + 3) + "\n"
         
         self.log_result(result_str)
     
@@ -457,48 +482,192 @@ class GraphApp:
         
         self.log_result(result_str)
     
+    def show_adjacency_list(self):
+        """Hiển thị danh sách kề"""
+        if not self.graph.vertices:
+            messagebox.showinfo("Thông tin", "Đồ thị trống!")
+            return
+        
+        result_str = "Danh sách kề:\n\n"
+        for vertex in sorted(self.graph.vertices):
+            neighbors = [v for v, w in self.graph.adjacency_list[vertex]]
+            result_str += f"{vertex}: {{{', '.join(neighbors) if neighbors else ''}}}\n"
+        
+        self.log_result(result_str)
+    
     def draw_graph(self):
         """Vẽ đồ thị"""
         for widget in self.canvas_frame.winfo_children():
             widget.destroy()
         
-        if not self.graph.vertices:
-            return
-        
         fig = Figure(figsize=(8, 6), dpi=100)
         ax = fig.add_subplot(111)
         
-        # Tính toán vị trí nút
-        if not self.pos or len(self.pos) != len(self.nx_graph.nodes()):
-            self.pos = nx.spring_layout(self.nx_graph, k=2, iterations=50)
+        # Set axes limits to match canvas size for pixel coordinates
+        ax.set_xlim(0, 800)
+        ax.set_ylim(600, 0)
         
-        # Vẽ nút
-        nx.draw_networkx_nodes(self.nx_graph, self.pos, node_color='lightblue', 
-                               node_size=800, ax=ax)
-        
-        # Vẽ cạnh
-        nx.draw_networkx_edges(self.nx_graph, self.pos, ax=ax, 
-                              arrowsize=20, arrowstyle='->' if self.graph.is_directed else '-',
-                              connectionstyle="arc3,rad=0.1")
-        
-        # Vẽ nhãn
-        nx.draw_networkx_labels(self.nx_graph, self.pos, font_size=10, font_weight='bold', ax=ax)
-        
-        # Vẽ trọng số
-        edge_labels = {}
-        for u, v, data in self.nx_graph.edges(data=True):
-            if 'weight' in data and data['weight'] != 1:
-                edge_labels[(u, v)] = data['weight']
-        
-        if edge_labels:
-            nx.draw_networkx_edge_labels(self.nx_graph, self.pos, edge_labels, ax=ax)
+        if self.graph.vertices:
+            # Tính toán vị trí nút
+            if not self.pos or len(self.pos) != len(self.nx_graph.nodes()):
+                self.pos = nx.spring_layout(self.nx_graph, k=2, iterations=50)
+            
+            # Vẽ nút
+            nx.draw_networkx_nodes(self.nx_graph, self.pos, node_color='lightblue', 
+                                   node_size=800, ax=ax)
+            
+            # Vẽ cạnh
+            nx.draw_networkx_edges(self.nx_graph, self.pos, ax=ax, 
+                                  arrowsize=20, arrowstyle='->' if self.graph.is_directed else '-',
+                                  connectionstyle="arc3,rad=0.1")
+            
+            # Vẽ nhãn
+            nx.draw_networkx_labels(self.nx_graph, self.pos, font_size=10, font_weight='bold', ax=ax)
+            
+            # Vẽ trọng số
+            edge_labels = {}
+            for u, v, data in self.nx_graph.edges(data=True):
+                if 'weight' in data and data['weight'] != 1:
+                    edge_labels[(u, v)] = data['weight']
+            
+            if edge_labels:
+                nx.draw_networkx_edge_labels(self.nx_graph, self.pos, edge_labels, ax=ax)
+            
+            ax.set_title(f"Đồ thị ({'Có hướng' if self.graph.is_directed else 'Vô hướng'})")
+        else:
+            ax.set_title("Đồ thị trống - Click để thêm đỉnh")
         
         ax.axis('off')
-        ax.set_title(f"Đồ thị ({'Có hướng' if self.graph.is_directed else 'Vô hướng'})")
         
         canvas = FigureCanvasTkAgg(fig, master=self.canvas_frame)
         canvas.draw()
         canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        
+        self.canvas = canvas
+        self.canvas.mpl_connect('button_press_event', self.on_canvas_click)
+    
+    def start_add_vertex(self):
+        """Bắt đầu chế độ thêm đỉnh"""
+        self.mode = 'add_vertex'
+        self.log_result("Click vào vị trí trên canvas để đặt đỉnh mới")
+    
+    def add_edge(self):
+        """Thêm cạnh"""
+        from_v = self.from_vertex_entry.get().strip()
+        to_v = self.to_vertex_entry.get().strip()
+        
+        if not from_v or not to_v:
+            messagebox.showwarning("Cảnh báo", "Vui lòng nhập cả hai đỉnh!")
+            return
+        
+        if from_v not in self.graph.vertices or to_v not in self.graph.vertices:
+            messagebox.showwarning("Cảnh báo", "Một hoặc cả hai đỉnh không tồn tại!")
+            return
+        
+        try:
+            weight = float(self.weight_entry.get())
+        except ValueError:
+            weight = 1
+        
+        # Check if edge already exists
+        exists = any((uu == from_v and vv == to_v) or (not self.graph.is_directed and uu == to_v and vv == from_v) for uu, vv, _ in self.graph.edge_list)
+        if exists:
+            messagebox.showwarning("Cảnh báo", f"Cạnh '{from_v}' -> '{to_v}' đã tồn tại!")
+            return
+        
+        self.graph.add_edge(from_v, to_v, weight)
+        
+        if weight == 1:
+            self.nx_graph.add_edge(from_v, to_v)
+        else:
+            self.nx_graph.add_edge(from_v, to_v, weight=weight)
+        
+        self.from_vertex_entry.delete(0, tk.END)
+        self.to_vertex_entry.delete(0, tk.END)
+        self.weight_entry.delete(0, tk.END)
+        self.weight_entry.insert(0, "1")
+        self.draw_graph()
+        self.log_result(f"✓ Thêm cạnh '{from_v}' -> '{to_v}' (trọng số: {weight}) thành công")
+    
+    def delete_vertex(self):
+        """Xóa đỉnh"""
+        vertex = self.delete_vertex_entry.get().strip()
+        if not vertex:
+            messagebox.showwarning("Cảnh báo", "Vui lòng nhập tên đỉnh!")
+            return
+        
+        if vertex not in self.graph.vertices:
+            messagebox.showwarning("Cảnh báo", f"Đỉnh '{vertex}' không tồn tại!")
+            return
+        
+        if messagebox.askyesno("Xác nhận", f"Xóa đỉnh '{vertex}' và tất cả cạnh liên quan?"):
+            # Remove from graph
+            self.graph.vertices.discard(vertex)
+            self.graph.adjacency_list.pop(vertex, None)
+            # Remove edges from edge_list
+            self.graph.edge_list = [(u,v,w) for u,v,w in self.graph.edge_list if u != vertex and v != vertex]
+            # Remove from adjacency lists of other vertices
+            for v in list(self.graph.adjacency_list.keys()):
+                self.graph.adjacency_list[v] = [(adj_v, w) for adj_v, w in self.graph.adjacency_list[v] if adj_v != vertex]
+            self.nx_graph.remove_node(vertex)
+            if vertex in self.pos:
+                del self.pos[vertex]
+            self.delete_vertex_entry.delete(0, tk.END)
+            self.draw_graph()
+            self.log_result(f"✓ Xóa đỉnh '{vertex}' thành công")
+    
+    def delete_edge(self):
+        """Xóa cạnh"""
+        from_v = self.delete_from_entry.get().strip()
+        to_v = self.delete_to_entry.get().strip()
+        
+        if not from_v or not to_v:
+            messagebox.showwarning("Cảnh báo", "Vui lòng nhập cả hai đỉnh!")
+            return
+        
+        # Find and remove edge
+        found = False
+        for i, (uu, vv, ww) in enumerate(self.graph.edge_list):
+            if (uu == from_v and vv == to_v) or (not self.graph.is_directed and uu == to_v and vv == from_v):
+                del self.graph.edge_list[i]
+                # Remove from adjacency
+                self.graph.adjacency_list[from_v] = [(vtx, w) for vtx, w in self.graph.adjacency_list[from_v] if vtx != to_v]
+                if not self.graph.is_directed:
+                    self.graph.adjacency_list[to_v] = [(vtx, w) for vtx, w in self.graph.adjacency_list[to_v] if vtx != from_v]
+                self.nx_graph.remove_edge(from_v, to_v)
+                found = True
+                break
+        
+        if found:
+            self.delete_from_entry.delete(0, tk.END)
+            self.delete_to_entry.delete(0, tk.END)
+            self.draw_graph()
+            self.log_result(f"✓ Xóa cạnh '{from_v}' -> '{to_v}' thành công")
+        else:
+            messagebox.showwarning("Cảnh báo", f"Không tìm thấy cạnh '{from_v}' -> '{to_v}'")
+    
+    def on_canvas_click(self, event):
+        """Xử lý click trên canvas"""
+        if not event.inaxes:
+            return
+        
+        x, y = event.xdata, event.ydata
+        
+        if self.mode == 'add_vertex':
+            # Mở dialog nhập tên
+            name = simpledialog.askstring("Nhập tên đỉnh", "Nhập tên cho đỉnh mới:")
+            if name and name.strip():
+                name = name.strip()
+                if name in self.graph.vertices:
+                    messagebox.showwarning("Cảnh báo", f"Đỉnh '{name}' đã tồn tại!")
+                    return
+                self.graph.add_vertex(name)
+                self.nx_graph.add_node(name)
+                # Set position
+                self.pos[name] = (x, y)
+                self.draw_graph()
+                self.log_result(f"✓ Thêm đỉnh '{name}' thành công")
+            self.mode = None
     
     def log_result(self, message):
         """Ghi kết quả vào khu vực text"""
@@ -518,7 +687,8 @@ class GraphApp:
             'is_directed': self.graph.is_directed,
             'vertices': list(self.graph.vertices),
             'edges': self.graph.edge_list,
-            'adjacency_list': dict(self.graph.adjacency_list)
+            'adjacency_list': dict(self.graph.adjacency_list),
+            'pos': self.pos
         }
         
         try:
@@ -549,6 +719,7 @@ class GraphApp:
                 else:
                     self.nx_graph.add_edge(u, v, weight=weight)
             
+            self.pos = data.get('pos', {})
             self.change_graph_type()
             self.log_result(f"✓ Đồ thị đã được tải từ:\n{file_path}")
         except Exception as e:
